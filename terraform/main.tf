@@ -23,9 +23,9 @@ resource "aws_apprunner_service" "example" {
 
     image_repository {
       image_configuration {
-        port = "8000"
+        port = "80"
       }
-      image_identifier      = "975049989256.dkr.ecr.eu-central-1.amazonaws.com/gawdat-company-ecr:latest"
+      image_identifier      = "975049989256.dkr.ecr.eu-central-1.amazonaws.com/new-ecr:17c9c72087953ae6d5451067f7a39a878808a5ef"
       image_repository_type = "ECR"
     }
   }
