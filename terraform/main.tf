@@ -5,6 +5,7 @@ terraform {
       version = "5.90.0"
     }
   }
+  backend "s3" {}
 }
 
 provider "aws" {
@@ -15,7 +16,13 @@ provider "aws" {
 variable "app_name" {
   description = "The name of the application, used in the service name and subdomain"
   type        = string
-  default     = "new-example-app-2"
+  default     = "new-example-app-3"
+}
+
+# Variable for the App Runner ECR access role ARN from bootstrap
+variable "apprunner_ecr_access_role_arn" {
+  description = "ARN of the IAM role that allows App Runner to access ECR"
+  type        = string
 }
 
 # Reference the existing Route 53 hosted zone for eramapps.com
@@ -29,7 +36,7 @@ resource "aws_apprunner_service" "example" {
 
   source_configuration {
     authentication_configuration {
-      access_role_arn = aws_iam_role.apprunner_ecr_access_role.arn
+      access_role_arn = var.apprunner_ecr_access_role_arn
     }
 
     auto_deployments_enabled = false
@@ -71,30 +78,6 @@ resource "aws_route53_record" "subdomain" {
   type    = "CNAME"
   records = [aws_apprunner_custom_domain_association.example.dns_target]
   ttl     = 300
-}
-
-# IAM role for App Runner to access ECR
-resource "aws_iam_role" "apprunner_ecr_access_role" {
-  name = "apprunner-ecr-access-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "build.apprunner.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-# Attach ECR access policy to the role
-resource "aws_iam_role_policy_attachment" "apprunner_ecr_policy" {
-  role       = aws_iam_role.apprunner_ecr_access_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
 }
 
 # Create S3 bucket for media and static files

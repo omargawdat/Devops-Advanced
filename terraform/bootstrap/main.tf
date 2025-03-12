@@ -67,3 +67,27 @@ resource "aws_ecr_repository" "app_repository" {
     scan_on_push = true
   }
 }
+
+# IAM role for App Runner to access ECR - shared across all environments
+resource "aws_iam_role" "apprunner_ecr_access_role" {
+  name = "apprunner-ecr-access-role-new"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "build.apprunner.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# Attach ECR access policy to the role - shared across all environments
+resource "aws_iam_role_policy_attachment" "apprunner_ecr_policy" {
+  role       = aws_iam_role.apprunner_ecr_access_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
+}
