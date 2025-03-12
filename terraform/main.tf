@@ -11,8 +11,21 @@ provider "aws" {
   region = "eu-central-1"
 }
 
+# Variable for the application name
+variable "app_name" {
+  description = "The name of the application, used in the service name and subdomain"
+  type        = string
+  default     = "new-example-app-2"
+}
+
+# Reference the existing Route 53 hosted zone for eramapps.com
+data "aws_route53_zone" "existing" {
+  name = "eramapps.com"
+}
+
+# Create the App Runner service
 resource "aws_apprunner_service" "example" {
-  service_name = "example-apprunner-service"
+  service_name = "${var.app_name}-apprunner-service"
 
   source_configuration {
     authentication_configuration {
@@ -29,6 +42,35 @@ resource "aws_apprunner_service" "example" {
       image_repository_type = "ECR"
     }
   }
+}
+
+# Associate the custom subdomain with the App Runner service
+resource "aws_apprunner_custom_domain_association" "example" {
+  domain_name          = "${var.app_name}.eramapps.com"
+  service_arn          = aws_apprunner_service.example.arn
+  enable_www_subdomain = false
+}
+
+# Create DNS records for certificate validation
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
+    for dvo in aws_apprunner_custom_domain_association.example.certificate_validation_records : dvo.name => dvo
+  }
+
+  zone_id = data.aws_route53_zone.existing.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  records = [each.value.value]
+  ttl     = 60
+}
+
+# Create CNAME record to point the subdomain to the App Runner service
+resource "aws_route53_record" "subdomain" {
+  zone_id = data.aws_route53_zone.existing.zone_id
+  name    = "${var.app_name}.eramapps.com"
+  type    = "CNAME"
+  records = [aws_apprunner_custom_domain_association.example.dns_target]
+  ttl     = 300
 }
 
 # IAM role for App Runner to access ECR

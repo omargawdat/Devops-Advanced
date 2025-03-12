@@ -2,7 +2,7 @@
 
 # Check if the key argument is provided
 if [ -z "$1" ]; then
-  echo "Please provide the state key "
+  echo "Please provide the state key"
   exit 1
 fi
 
@@ -32,3 +32,11 @@ terraform init -reconfigure \
   -backend-config="region=$REGION" \
   -backend-config="dynamodb_table=$DYNAMODB_TABLE" \
   -backend-config="key=$KEY"
+
+# Step 1: Apply the App Runner service and custom domain association
+echo "Step 1: Applying App Runner service and custom domain association..."
+terraform apply -target=aws_apprunner_service.example -target=aws_apprunner_custom_domain_association.example -auto-approve
+
+# Step 2: Apply the full configuration
+echo "Step 2: Applying the full configuration..."
+terraform apply -auto-approve
