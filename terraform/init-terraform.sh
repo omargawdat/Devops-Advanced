@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e  # Exit immediately if a command exits with a non-zero status
 
 # Check if the key argument is provided
 if [ -z "$1" ]; then

@@ -96,3 +96,50 @@ resource "aws_iam_role_policy_attachment" "apprunner_ecr_policy" {
   role       = aws_iam_role.apprunner_ecr_access_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
 }
+
+# Create S3 bucket for media and static files
+resource "aws_s3_bucket" "media_bucket" {
+  bucket = "${var.app_name}-media-bucket"
+}
+
+# Allow public access to the bucket's objects
+resource "aws_s3_bucket_public_access_block" "media_bucket" {
+  bucket = aws_s3_bucket.media_bucket.id
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+# Set bucket policy to allow public read access
+resource "aws_s3_bucket_policy" "media_bucket" {
+  bucket = aws_s3_bucket.media_bucket.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.media_bucket.arn}/*"
+      }
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.media_bucket]
+}
+
+# CORS configuration for the media bucket
+resource "aws_s3_bucket_cors_configuration" "media_bucket" {
+  bucket = aws_s3_bucket.media_bucket.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET"]
+    allowed_origins = ["*"]
+    expose_headers = []
+    max_age_seconds = 3000
+  }
+}
