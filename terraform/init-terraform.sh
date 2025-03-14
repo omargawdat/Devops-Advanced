@@ -1,60 +1,93 @@
-#!/bin/bash
-set -e  # Exit immediately if a command exits with a non-zero status
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Check if both arguments are provided
-if [ $# -lt 2 ]; then
-  echo "Usage: $0 <state_key> <apply|destroy>"
-  echo "Example: $0 dev/terraform.tfstate apply"
-  exit 1
+# Parse command-line arguments
+KEY=""
+APP_NAME=""
+DOMAIN_NAME=""
+ECR_IMAGE_IDENTIFIER=""
+CONTAINER_PORT=""
+S3_BUCKET_NAME=""
+AWS_SECRET_MANAGER_NAME=""
+DB_NAME=""
+
+# Parse parameters
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --key)                  KEY="$2"; shift 2 ;;
+        --app-name)             APP_NAME="$2"; shift 2 ;;
+        --domain-name)          DOMAIN_NAME="$2"; shift 2 ;;
+        --ecr-image-identifier) ECR_IMAGE_IDENTIFIER="$2"; shift 2 ;;
+        --container-port)       CONTAINER_PORT="$2"; shift 2 ;;
+        --media-bucket-name)    S3_BUCKET_NAME="$2"; shift 2 ;;
+        --secret-manager-name)  AWS_SECRET_MANAGER_NAME="$2"; shift 2 ;;
+        --db-name)              DB_NAME="$2"; shift 2 ;;
+        -h|--help)
+            echo "Usage: $(basename "$0") --key VALUE --app-name VALUE [other options]"
+            exit 0 ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 1 ;;
+    esac
+done
+
+# Validate required parameters
+MISSING=()
+[[ -z "$KEY" ]] && MISSING+=("--key")
+[[ -z "$APP_NAME" ]] && MISSING+=("--app-name")
+[[ -z "$DOMAIN_NAME" ]] && MISSING+=("--domain-name")
+[[ -z "$ECR_IMAGE_IDENTIFIER" ]] && MISSING+=("--ecr-image-identifier")
+[[ -z "$CONTAINER_PORT" ]] && MISSING+=("--container-port")
+[[ -z "$S3_BUCKET_NAME" ]] && MISSING+=("--media-bucket-name")
+[[ -z "$AWS_SECRET_MANAGER_NAME" ]] && MISSING+=("--secret-manager-name")
+[[ -z "$DB_NAME" ]] && MISSING+=("--db-name")
+
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    echo "Missing required parameters: ${MISSING[*]}" >&2
+    exit 1
 fi
 
-# Assign the provided arguments to variables
-KEY=$1
-OPERATION=$2
-
-# Validate operation type
-if [ "$OPERATION" != "apply" ] && [ "$OPERATION" != "destroy" ]; then
-  echo "Error: Operation must be either 'apply' or 'destroy'"
-  exit 1
-fi
-
-# Navigate to the bootstrap directory to capture output values
-cd bootstrap
-
-# Capture the output values from the bootstrap configuration
-BUCKET=$(terraform output -raw state_bucket_name)
+# Get Terraform bootstrap outputs
+cd ./bootstrap || { echo "Bootstrap directory not found"; exit 1; }
 REGION=$(terraform output -raw region)
+STATE_BUCKET=$(terraform output -raw state_bucket_name)
 DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
-ECR_ACCESS_ROLE_ARN=$(terraform output -raw apprunner_ecr_access_role_arn)
-
-# Return to the root directory
+APPRUNNER_ECR_ROLE_ARN=$(terraform output -raw apprunner_ecr_access_role_arn)
 cd ..
 
-# Display the values being used (for transparency and debugging)
-echo "Using bucket: $BUCKET"
-echo "Using region: $REGION"
-echo "Using dynamodb_table: $DYNAMODB_TABLE"
-echo "Using key: $KEY"
-echo "Using App Runner ECR access role ARN: $ECR_ACCESS_ROLE_ARN"
-echo "Operation: $OPERATION"
+# Build Terraform variables
+TF_VARS=(
+    "aws_region=${REGION}"
+    "app_name=${APP_NAME}"
+    "apprunner_ecr_access_role_arn=${APPRUNNER_ECR_ROLE_ARN}"
+    "domain_name=${DOMAIN_NAME}"
+    "ecr_image_identifier=${ECR_IMAGE_IDENTIFIER}"
+    "container_port=${CONTAINER_PORT}"
+    "media_bucket_name=${S3_BUCKET_NAME}"
+    "secret_manager_name=${AWS_SECRET_MANAGER_NAME}"
+    "db_name=${DB_NAME}"
+)
 
-# Initialize Terraform with the backend configuration using -reconfigure
+TF_ARGS=()
+for var in "${TF_VARS[@]}"; do
+    TF_ARGS+=("-var" "${var}")
+done
+
+# Run Terraform commands
+echo "Initializing Terraform..."
 terraform init -reconfigure \
-  -backend-config="bucket=$BUCKET" \
-  -backend-config="region=$REGION" \
-  -backend-config="dynamodb_table=$DYNAMODB_TABLE" \
-  -backend-config="key=$KEY"
+    -backend-config="bucket=${STATE_BUCKET}" \
+    -backend-config="region=${REGION}" \
+    -backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
+    -backend-config="key=${KEY}"
 
-if [ "$OPERATION" == "apply" ]; then
-  # Apply operation - first specific targets, then everything
-  echo "Step 1: Applying App Runner service and custom domain association..."
-  terraform apply -target=aws_apprunner_service.example -target=aws_apprunner_custom_domain_association.example -auto-approve -var="apprunner_ecr_access_role_arn=$ECR_ACCESS_ROLE_ARN"
+echo "Applying AppRunner service and domain association..."
+terraform apply "${TF_ARGS[@]}" \
+    -target=aws_apprunner_service.example \
+    -target=aws_apprunner_custom_domain_association.example \
+    -auto-approve
 
-  echo "Step 2: Applying the full configuration..."
-  terraform apply -auto-approve -var="apprunner_ecr_access_role_arn=$ECR_ACCESS_ROLE_ARN"
-else
-  # Destroy operation - single step to destroy everything
-  echo "Destroying all resources..."
-  terraform destroy -auto-approve -var="apprunner_ecr_access_role_arn=$ECR_ACCESS_ROLE_ARN"
-fi
-echo "Operation '$OPERATION' completed successfully"
+echo "Applying remaining infrastructure..."
+terraform apply "${TF_ARGS[@]}" -auto-approve
+
+echo "Infrastructure deployment completed successfully!"

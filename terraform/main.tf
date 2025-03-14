@@ -9,28 +9,14 @@ terraform {
 }
 
 provider "aws" {
-  region = "eu-central-1"
+  region = var.aws_region
 }
 
-# Variable for the application name
-variable "app_name" {
-  description = "The name of the application, used in the service name and subdomain"
-  type        = string
-  default     = "new-example-app-3"
-}
 
-# Variable for the App Runner ECR access role ARN from bootstrap
-variable "apprunner_ecr_access_role_arn" {
-  description = "ARN of the IAM role that allows App Runner to access ECR"
-  type        = string
-}
-
-# Reference the existing Route 53 hosted zone for eramapps.com
 data "aws_route53_zone" "existing" {
-  name = "eramapps.com"
+  name = var.domain_name
 }
 
-# Create the App Runner service
 resource "aws_apprunner_service" "example" {
   service_name = "${var.app_name}-apprunner-service"
 
@@ -43,22 +29,28 @@ resource "aws_apprunner_service" "example" {
 
     image_repository {
       image_configuration {
-        port = "80"
+        port = var.container_port
+        runtime_environment_variables = {
+          "AWS_REGION_NAME"         = var.aws_region
+          "AWS_SECRET_MANAGER_NAME" = var.secret_manager_name
+          "IS_LOCAL"                = "false"
+          "DOMAIN_NAME"             = var.domain_name
+          "S3_BUCKET_NAME"          = var.media_bucket_name
+          "DB_NAME"                 = var.db_name
+        }
       }
-      image_identifier      = "975049989256.dkr.ecr.eu-central-1.amazonaws.com/new-ecr:17c9c72087953ae6d5451067f7a39a878808a5ef"
+      image_identifier = var.ecr_image_identifier
       image_repository_type = "ECR"
     }
   }
 }
 
-# Associate the custom subdomain with the App Runner service
 resource "aws_apprunner_custom_domain_association" "example" {
-  domain_name          = "${var.app_name}.eramapps.com"
+  domain_name = "${var.app_name}.${var.domain_name}"
   service_arn          = aws_apprunner_service.example.arn
   enable_www_subdomain = false
 }
 
-# Create DNS records for certificate validation
 resource "aws_route53_record" "cert_validation" {
   for_each = {
     for dvo in aws_apprunner_custom_domain_association.example.certificate_validation_records : dvo.name => dvo
@@ -72,9 +64,9 @@ resource "aws_route53_record" "cert_validation" {
 }
 
 # Create CNAME record to point the subdomain to the App Runner service
-resource "aws_route53_record" "subdomain" {
+resource "aws_route53_record" "cname" {
   zone_id = data.aws_route53_zone.existing.zone_id
-  name    = "${var.app_name}.eramapps.com"
+  name = "${var.app_name}.${var.domain_name}"
   type    = "CNAME"
   records = [aws_apprunner_custom_domain_association.example.dns_target]
   ttl     = 300
@@ -82,7 +74,7 @@ resource "aws_route53_record" "subdomain" {
 
 # Create S3 bucket for media and static files
 resource "aws_s3_bucket" "media_bucket" {
-  bucket = "${var.app_name}-media-bucket"
+  bucket = var.media_bucket_name
 }
 
 # Allow public access to the bucket's objects

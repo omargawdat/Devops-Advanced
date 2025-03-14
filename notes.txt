@@ -1,1 +1,12 @@
 975049989256.dkr.ecr.eu-central-1.amazonaws.com/new-ecr:17c9c72087953ae6d5451067f7a39a878808a5ef
+
+
+./init-terraform.sh \
+  --key "prod/terraform.tfstate" \
+  --app-name "myapplication-name-new" \
+  --domain-name "prod.weemm.com" \
+  --ecr-image-identifier "975049989256.dkr.ecr.eu-central-1.amazonaws.com/new-ecr:17c9c72087953ae6d5451067f7a39a878808a5ef" \
+  --container-port "80" \
+  --media-bucket-name "my-application-media" \
+  --secret-manager-name "my-app-secrets" \
+  --db-name "myappdb"
